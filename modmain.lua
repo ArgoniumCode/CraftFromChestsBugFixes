@@ -442,8 +442,10 @@ function RecipePopup:Refresh()
 			["PIRATIHATITATOR"] = STRINGS.UI.CRAFTING.NEEDPIRATIHATITATOR,
 			["SEALAB"] = STRINGS.UI.CRAFTING.NEEDSEALAB}
 
-		if _G.SaveGameIndex:IsModeShipwrecked() then
-			hint_text["PRESTIHATITATOR"] = STRINGS.UI.CRAFTING.NEEDPIRATIHATITATOR
+		if CSW then
+			if _G.SaveGameIndex:IsModeShipwrecked() then
+				hint_text["PRESTIHATITATOR"] = STRINGS.UI.CRAFTING.NEEDPIRATIHATITATOR
+			end
 		end
 
 		local str = hint_text[_G.GetHintTextForRecipe(recipe)] or "Text not found."
@@ -552,8 +554,10 @@ function RecipePopup:Refresh()
 			end
 
 			local item_img = v.type
-			if _G.SaveGameIndex:IsModeShipwrecked() and _G.SW_ICONS[item_img] ~= nil then
-				item_img = _G.SW_ICONS[item_img]
+			if CSW then
+				if _G.SaveGameIndex:IsModeShipwrecked() and _G.SW_ICONS[item_img] ~= nil then
+					item_img = _G.SW_ICONS[item_img]
+				end
 			end
 
 			local ingredientUI = IngredientUI(v.atlas,item_img..".tex",need,total,total >= need,STRINGS.NAMES[string.upper(v.type)],owner)
@@ -582,11 +586,15 @@ function RecipePopup:Refresh()
 			end
 
 			local item_img = item.type
-			if _G.SaveGameIndex:IsModeShipwrecked() and _G.SW_ICONS[item_img] ~= nil then
-				item_img = _G.SW_ICONS[item_img]
+			if CSW then
+				if _G.SaveGameIndex:IsModeShipwrecked() and _G.SW_ICONS[item_img] ~= nil then
+					item_img = _G.SW_ICONS[item_img]
+				end
 			end
-			if _G.SaveGameIndex:IsModePorkland() and _G.PORK_ICONS[item_img] ~= nil then
-				item_img = _G.PORK_ICONS[item_img]
+			if HML then
+				if _G.SaveGameIndex:IsModePorkland() and _G.PORK_ICONS[item_img] ~= nil then
+					item_img = _G.PORK_ICONS[item_img]
+				end
 			end
 
 			local imageName = item_img .. ".tex"
