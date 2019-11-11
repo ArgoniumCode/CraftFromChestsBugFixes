@@ -1,12 +1,12 @@
 name = ' Craft From Chest [ROG/SW/Hamlet] '
 description = 'When crafting items, ingredients are automatically obtained from nearby containers. No manually searching for necessary items anymore! '
 author = 'fredwangwang, Argonium'
-version = '1.3.1'
+version = '1.3.2'
 forumthread = ''
 api_version = 6
-priority = 1
+priority = 2^32
 
-dont_starve_compatible = true -- Not so sure about that
+dont_starve_compatible = true
 reign_of_giants_compatible = true
 shipwrecked_compatible = true
 hamlet_compatible = true

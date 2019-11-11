@@ -1,17 +1,22 @@
 local _G = GLOBAL
---Thanks rezecib!
-local function CheckDlcEnabled(dlc)
+local function CheckDLCMounted(dlc)
 	-- if the constant doesn't even exist, then they can't have the DLC
 	if not _G.rawget(_G, dlc) then
 		return false
 	end
-	_G.assert(_G.rawget(_G, "IsDLCEnabled"), "Old version of game, please update (IsDLCEnabled function missing)")
+	_G.assert(_G.rawget(_G, 'IsDLCEnabled'), 'Old version of game, please update (IsDLCEnabled function missing)')
 	return _G.IsDLCEnabled(_G[dlc])
 end
 
-local ROG = CheckDlcEnabled("REIGN_OF_GIANTS")
-local CSW = CheckDlcEnabled("CAPY_DLC")
-local HML = CheckDlcEnabled("PORKLAND_DLC")
+local ROG = CheckDLCMounted('REIGN_OF_GIANTS') -- Reign Of Giants
+local CSW = CheckDLCMounted('CAPY_DLC') -- Shipwrecked
+local HML = CheckDLCMounted('PORKLAND_DLC') -- Hamlet
+local DEF = not ROG and not CSW and not HML -- Default Version
+local UNK = not DEF and not ROG and not CSW and not HML -- We don't know this version
+if UNK then -- Don't run this mod on Unknown DLC's
+	print('Craft From Chests: Unknown DLC. Preventing mod to load.')
+	return 
+end 
 
 local TheSim = _G.TheSim
 local RoundUp = _G.RoundUp
@@ -24,10 +29,9 @@ local UI_ATLAS = _G.UI_ATLAS
 local CONTROL_ACCEPT = _G.CONTROL_ACCEPT
 local STRINGS = _G.STRINGS
 
-local DeBuG = GetModConfigData("debug")
-local range = GetModConfigData("range")
-local inv_first = GetModConfigData("is_inv_first")
-local c = { r = 0, g = 0.3, b = 0 }
+local range = GetModConfigData('range')
+local inv_first = GetModConfigData('is_inv_first')
+local HighlightColor = { r = 0, g = 0.3, b = 0 }
 
 local Builder = require 'components/builder'
 local Highlight = require 'components/highlight'
@@ -46,7 +50,7 @@ local TEASER_SCALE_BTN = 1.5
 
 local function debugPrint(...)
 	local arg = { ... }
-	if DeBuG then
+	if GetModConfigData('debug') then
 		for k, v in pairs(arg) do
 			print(v)
 		end
@@ -68,7 +72,7 @@ local function highlight(insts, highlit)
 			v:AddComponent('highlight')
 		end
 		if v.components.highlight then
-			v.components.highlight:Highlight(c.r, c.g, c.b)
+			v.components.highlight:Highlight(HighlightColor.r, HighlightColor.g, HighlightColor.b)
 			table.insert(highlit, v)
 		end
 	end
@@ -91,12 +95,8 @@ end
 
 -- given the player, return the chests close to the player
 local function getNearbyChest(player, dist)
-	if dist == nil then
-		dist = range
-	end
-	if not player then
-		return {}
-	end
+	if dist == nil then dist = range end
+	if not player then return {} end
 	local x, y, z = player.Transform:GetWorldPosition()
 	local inst = TheSim:FindEntities(x, y, z, dist, {}, { 'NOBLOCK', 'player', 'FX' }) or {}
 	return filterChest(inst)
@@ -104,9 +104,7 @@ end
 
 -- return: contains (T/F) total (num) qualifyChests (list of chest contains the item)
 local function findFromChests(chests, item)
-	if not (chests and item) then
-		return false, 0, {}
-	end
+	if not (chests and item) then return false, 0, {} end
 	local qualifyChests = {}
 	local total = 0
 	local contains = false
@@ -138,8 +136,8 @@ local function removeFromNearbyChests(player, item, amt)
 	end
 	debugPrint('removeFromNearbyChests', player, item, amt)
 
-	consumedChests = {}-- clear consumed chests
-	local chests = getNearbyChest(player, range + 3)-- extend the range a little bit, avoid error caused by slight player movement
+	consumedChests = {} -- clear consumed chests
+	local chests = getNearbyChest(player, range + 3) -- extend the range a little bit, avoid error caused by slight player movement
 	local numItemsFound = 0
 	for k, v in pairs(chests) do
 		local container = v.components.container
@@ -259,7 +257,7 @@ end
 
 -- detect if the number of chests around the player changes.
 -- If true, push event stacksizechange
--- TODO: find a better event to push than "stacksizechange"
+-- TODO: find a better event to push than 'stacksizechange'
 local _oldCmpChestsNum = 0
 local _newCmpChestsNum = 0
 local function compareValidChests(player)
@@ -267,7 +265,7 @@ local function compareValidChests(player)
 	if (_oldCmpChestsNum ~= _newCmpChestsNum) then
 		_oldCmpChestsNum = _newCmpChestsNum
 		debugPrint('Chest number changed!')
-		player:PushEvent("stacksizechange")
+		player:PushEvent('stacksizechange')
 	end
 end
 
@@ -284,7 +282,7 @@ end
 --------------------------------------------------------------------------
 ---------------Override Builder functions (DS, RoG, SW, HAM)--------------
 --------------------------------------------------------------------------
-if ROG or CSW then 
+if ROG or CSW or DEF then 
 	function Builder:CanBuild(recname)
 		if self.freebuildmode then
 			return true
@@ -329,6 +327,29 @@ if ROG or CSW then
 			return ingredients
 		end
 	end
+
+	function Builder:RemoveIngredients(recname_or_ingre)
+		if type(recname_or_ingre) ~= 'table' then
+			local recipe = GetRecipe(recname_or_ingre)
+			self.inst:PushEvent('consumeingredients', { recipe = recipe })
+			if recipe then
+				for k, v in pairs(recipe.ingredients) do
+					local amt = math.max(1, RoundUp(v.amount * self.ingredientmod))
+					playerConsumeByName(self.inst, v.type, amt)
+				end
+			end
+		else
+			debugPrint('RoG Ver Builder:RemoveIngredients')
+			for item, ents in pairs(recname_or_ingre) do
+				for k, v in pairs(ents) do
+					for i = 1, v do
+						self.inst.components.inventory:RemoveItem(k, false):Remove()
+					end
+				end
+			end
+			self.inst:PushEvent('consumeingredients')
+		end
+	end
 end
 
 if HML then 
@@ -343,7 +364,7 @@ if HML then
 		if recipe then
 			for ik, iv in pairs(recipe.ingredients) do
 				local amt = math.max(1, RoundUp(iv.amount * self.ingredientmod))
-				if iv.type == "oinc" then
+				if iv.type == 'oinc' then
 					if self.inst.components.shopper:GetMoney(self.inst.components.inventory) < amt then
 						return false
 					end
@@ -371,7 +392,7 @@ if HML then
 		if recipe then
 			local ingredients = {}
 			for k, v in pairs(recipe.ingredients) do
-				if v.type == "oinc" then
+				if v.type == 'oinc' then
 					local amt = math.max(1, RoundUp(v.amount * self.ingredientmod))			 
 					ingredients[v.type] = amt
 				else
@@ -384,32 +405,6 @@ if HML then
 		end
 	end
 end
-
-if ROG or CSW then 
-	function Builder:RemoveIngredients(recname_or_ingre)
-		if type(recname_or_ingre) ~= 'table' then
-			local recipe = GetRecipe(recname_or_ingre)
-			self.inst:PushEvent("consumeingredients", { recipe = recipe })
-			if recipe then
-				for k, v in pairs(recipe.ingredients) do
-					local amt = math.max(1, RoundUp(v.amount * self.ingredientmod))
-					playerConsumeByName(self.inst, v.type, amt)
-				end
-			end
-		else
-			debugPrint('RoG Ver Builder:RemoveIngredients')
-			for item, ents in pairs(recname_or_ingre) do
-				for k, v in pairs(ents) do
-					for i = 1, v do
-						self.inst.components.inventory:RemoveItem(k, false):Remove()
-					end
-				end
-			end
-			self.inst:PushEvent("consumeingredients")
-		end
-	end
-end
-
 --------------------------------------------------------
 -------------End Override Builder functions-------------
 --------------------------------------------------------
@@ -425,7 +420,7 @@ function RecipePopup:Refresh()
 	local tech_level = owner.components.builder.accessible_tech_trees
 	local should_hint = not knows and _G.ShouldHintRecipe(recipe.level, tech_level) and not _G.CanPrototypeRecipe(recipe.level, tech_level)
 	local equippedBody = owner.components.inventory:GetEquippedItem(EQUIPSLOTS.BODY)
-	local showamulet = equippedBody and equippedBody.prefab == "greenamulet"
+	local showamulet = equippedBody and equippedBody.prefab == 'greenamulet'
 	local controller_id = TheInput:GetControllerID()
 
 	if should_hint then
@@ -433,22 +428,22 @@ function RecipePopup:Refresh()
 		self.button:Hide()
 
 		local hint_text = {
-			["SCIENCEMACHINE"] = STRINGS.UI.CRAFTING.NEEDSCIENCEMACHINE,
-			["ALCHEMYMACHINE"] = STRINGS.UI.CRAFTING.NEEDALCHEMYENGINE,
-			["SHADOWMANIPULATOR"] = STRINGS.UI.CRAFTING.NEEDSHADOWMANIPULATOR,
-			["PRESTIHATITATOR"] = STRINGS.UI.CRAFTING.NEEDPRESTIHATITATOR,
-			["HOGUSPORKUSATOR"] = STRINGS.UI.CRAFTING.NEEDHOUGSPORKUSATOR,
-			["CANTRESEARCH"] = STRINGS.UI.CRAFTING.CANTRESEARCH,
-			["PIRATIHATITATOR"] = STRINGS.UI.CRAFTING.NEEDPIRATIHATITATOR,
-			["SEALAB"] = STRINGS.UI.CRAFTING.NEEDSEALAB}
+			['SCIENCEMACHINE'] = STRINGS.UI.CRAFTING.NEEDSCIENCEMACHINE,
+			['ALCHEMYMACHINE'] = STRINGS.UI.CRAFTING.NEEDALCHEMYENGINE,
+			['SHADOWMANIPULATOR'] = STRINGS.UI.CRAFTING.NEEDSHADOWMANIPULATOR,
+			['PRESTIHATITATOR'] = STRINGS.UI.CRAFTING.NEEDPRESTIHATITATOR,
+			['HOGUSPORKUSATOR'] = STRINGS.UI.CRAFTING.NEEDHOUGSPORKUSATOR,
+			['CANTRESEARCH'] = STRINGS.UI.CRAFTING.CANTRESEARCH,
+			['PIRATIHATITATOR'] = STRINGS.UI.CRAFTING.NEEDPIRATIHATITATOR,
+			['SEALAB'] = STRINGS.UI.CRAFTING.NEEDSEALAB}
 
 		if CSW then
 			if _G.SaveGameIndex:IsModeShipwrecked() then
-				hint_text["PRESTIHATITATOR"] = STRINGS.UI.CRAFTING.NEEDPIRATIHATITATOR
+				hint_text['PRESTIHATITATOR'] = STRINGS.UI.CRAFTING.NEEDPIRATIHATITATOR
 			end
 		end
 
-		local str = hint_text[_G.GetHintTextForRecipe(recipe)] or "Text not found."
+		local str = hint_text[_G.GetHintTextForRecipe(recipe)] or 'Text not found.'
 		self.teaser:SetScale(TEASER_SCALE_TEXT)
 		self.teaser:SetString(str)
 		self.teaser:Show()
@@ -464,7 +459,7 @@ function RecipePopup:Refresh()
 
 			if can_build then
 				self.teaser:SetScale(TEASER_SCALE_BTN)
-				self.teaser:SetString(TheInput:GetLocalizedControl(controller_id, CONTROL_ACCEPT) .. " " .. (buffered and STRINGS.UI.CRAFTING.PLACE or STRINGS.UI.CRAFTING.BUILD))
+				self.teaser:SetString(TheInput:GetLocalizedControl(controller_id, CONTROL_ACCEPT) .. ' ' .. (buffered and STRINGS.UI.CRAFTING.PLACE or STRINGS.UI.CRAFTING.BUILD))
 			else
 				self.teaser:SetScale(TEASER_SCALE_TEXT)
 				self.teaser:SetString(STRINGS.UI.CRAFTING.NEEDSTUFF)
@@ -494,13 +489,13 @@ function RecipePopup:Refresh()
 
 			if can_build then
 				self.teaser:SetScale(TEASER_SCALE_BTN)
-				self.teaser:SetString(TheInput:GetLocalizedControl(controller_id, CONTROL_ACCEPT) .. " " .. STRINGS.UI.CRAFTING.PROTOTYPE)
+				self.teaser:SetString(TheInput:GetLocalizedControl(controller_id, CONTROL_ACCEPT) .. ' ' .. STRINGS.UI.CRAFTING.PROTOTYPE)
 			else
 				self.teaser:SetScale(TEASER_SCALE_TEXT)
 				self.teaser:SetString(STRINGS.UI.CRAFTING.NEEDSTUFF)
 			end
 		else
-			self.button.image_normal = "button.tex"
+			self.button.image_normal = 'button.tex'
 			self.button.image:SetTexture(UI_ATLAS, self.button.image_normal)
 
 			self.button:Show()
@@ -540,7 +535,7 @@ function RecipePopup:Refresh()
 	local total, need, has_chest, num_found_chest, has_inv, num_found_inv
 	validChests = {}
 
-	if ROG or CSW then
+	if ROG or CSW or DEF then
 		for k, v in pairs(recipe.ingredients) do
 			local validChestsOfIngredient = {}
 			
@@ -560,9 +555,9 @@ function RecipePopup:Refresh()
 				end
 			end
 
-			local ingredientUI = IngredientUI(v.atlas,item_img..".tex",need,total,total >= need,STRINGS.NAMES[string.upper(v.type)],owner)
-			-- ingredientUI.quant:SetString(string.format("Inv:%d/%d\nAll:%d/%d", num_found_inv, need, total, need))
-			ingredientUI.quant:SetString(string.format("All:%d/%d\n(Inv:%d)", total, need, num_found_inv))
+			local ingredientUI = IngredientUI(v.atlas,item_img..'.tex',need,total,total >= need,STRINGS.NAMES[string.upper(v.type)],owner)
+			-- ingredientUI.quant:SetString(string.format('Inv:%d/%d\nAll:%d/%d', num_found_inv, need, total, need))
+			ingredientUI.quant:SetString(string.format('All:%d/%d\n(Inv:%d)', total, need, num_found_inv))
 			local ing = self.contents:AddChild(ingredientUI)
 			ing:SetPosition(Vector3(offset, 80, 0))
 			offset = offset + (w + div)
@@ -570,7 +565,6 @@ function RecipePopup:Refresh()
 		end
 		highlight(validChests, highlit)
 	end 
-
 	if HML then
 		for k, item in pairs(recipe.ingredients) do
 			-- calculations
@@ -580,7 +574,7 @@ function RecipePopup:Refresh()
 			has_chest, num_found_chest, validChestsOfIngredient = findFromNearbyChests(owner, item.type)
 			total = num_found_chest + num_found_inv
 
-			if item.type == "oinc" then
+			if item.type == 'oinc' then
 				num_found = owner.components.shopper:GetMoney(owner.components.inventory)
 				has = num_found >= item.amount
 			end
@@ -597,10 +591,10 @@ function RecipePopup:Refresh()
 				end
 			end
 
-			local imageName = item_img .. ".tex"
+			local imageName = item_img .. '.tex'
 			local ingredientUI = IngredientUI(item:GetAtlas(imageName), imageName, need, total, total >= need,STRINGS.NAMES[string.upper(item.type)],owner)
-			-- ingredientUI.quant:SetString(string.format("Inv:%d/%d\nAll:%d/%d", num_found_inv, need, total, need))
-			ingredientUI.quant:SetString(string.format("All:%d/%d\n(Inv:%d)", total, need, num_found_inv))
+			-- ingredientUI.quant:SetString(string.format('Inv:%d/%d\nAll:%d/%d', num_found_inv, need, total, need))
+			ingredientUI.quant:SetString(string.format('All:%d/%d\n(Inv:%d)', total, need, num_found_inv))
 			local ing = self.contents:AddChild(ingredientUI)
 			ing:SetPosition(Vector3(offset, 80, 0))
 			offset = offset + (w + div)
@@ -608,8 +602,8 @@ function RecipePopup:Refresh()
 		end
 
 		for k,item in pairs(recipe.character_ingredients) do
-			local imageName = item.type ..".tex"
-			if item.type == "decrease_health" then 
+			local imageName = item.type ..'.tex'
+			if item.type == 'decrease_health' then 
 				local has, amount = builder:HasCharacterIngredient(item)
 				local ing = self.contents:AddChild(IngredientUI(item:GetAtlas(imageName), imageName, item.amount, amount, has, STRINGS.NAMES[string.upper(item.type)], owner, item.type))
 				ing:SetPosition(Vector3(offset, self.skins_spinner ~= nil and 110 or 80, 0))
@@ -624,7 +618,7 @@ function RecipePopup:Refresh()
 
 				--IngredientUI(Atlas, Image, Needed, You Have, HasBool, Name, Owner, Type)
 				local ingredientUI = IngredientUI(item:GetAtlas(imageName), imageName, need, total, total >= need, STRINGS.NAMES[string.upper(item.type)], owner, item.type)
-				ingredientUI.quant:SetString(string.format("All:%d/%d\n(Inv:%d)", total, need, num_found_inv))
+				ingredientUI.quant:SetString(string.format('All:%d/%d\n(Inv:%d)', total, need, num_found_inv))
 				local ing = self.contents:AddChild(ingredientUI)
 				ing:SetPosition(Vector3(offset, self.skins_spinner ~= nil and 110 or 80, 0))
 				offset = offset + (w + div)
